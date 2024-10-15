@@ -7,6 +7,19 @@ from torch import autocast
 from contextlib import nullcontext
 import requests
 import functools
+import sys, os
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+from io import BytesIO
+import torch
+import numpy as np
+from PIL import Image
+from einops import rearrange
+from torch import autocast
+from contextlib import nullcontext
+import requests
+import functools
 
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
@@ -219,4 +232,4 @@ The model was trained on a subset of LAION Improved Aesthetics at a resolution o
 
 """)
 
-demo.launch(share=True)
+demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
