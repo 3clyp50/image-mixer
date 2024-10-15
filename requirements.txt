@@ -1,6 +1,8 @@
 --extra-index-url https://download.pytorch.org/whl/cu113
-torch==1.12.1
-torchvision==0.13.1
+httpx==0.23.0 
+httpcore==0.15.0
+torch==2.0.1
+torchvision==0.15.2
 albumentations==0.4.3
 opencv-python==4.5.5.64
 pudb==2019.2
@@ -19,6 +21,8 @@ torchmetrics==0.6.0
 fire==0.4.0
 gradio==3.1.4
 diffusers==0.3.0
+numpy==1.26.4
+taming-transformers-rom1504
 datasets[vision]==2.4.0
 -e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers
 -e git+https://github.com/openai/CLIP.git@main#egg=clip
