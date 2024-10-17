@@ -64,7 +64,7 @@ def to_im_list(x_samples_ddim):
     return ims
 
 @torch.no_grad()
-def sample(sampler, model, c, uc, scale, start_code, h=1024, w=1024, precision="autocast",ddim_steps=50):
+def sample(sampler, model, c, uc, scale, start_code, h=550, w=550, precision="autocast",ddim_steps=50):
     ddim_eta=0.0
     precision_scope = autocast if precision=="autocast" else nullcontext
     with precision_scope("cuda"):
@@ -89,7 +89,7 @@ def run(*args):
         inps.append(args[i:i+n_inputs])
 
     scale, n_samples, seed, steps = args[-4:]
-    h = w = 1280
+    h = w = 700
 
     sampler = DDIMSampler(model)
     # sampler = PLMSSampler(model)
@@ -179,7 +179,7 @@ _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](htt
                     strengths.append(strength)
     with gr.Row():
         cfg_scale = gr.Slider(label="CFG scale", value=3.5, minimum=1, maximum=20, step=0.5)
-        n_samples = gr.Slider(label="Num samples", value=1, minimum=1, maximum=4, step=1)
+        n_samples = gr.Slider(label="Num samples", value=1, minimum=1, maximum=2, step=1)
         seed = gr.Slider(label="Seed", value=3800, minimum=0, maximum=10000, step=1)
         steps = gr.Slider(label="Steps", value=40, minimum=10, maximum=200, step=5)
 
