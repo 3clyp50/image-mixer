@@ -7,38 +7,31 @@ from torch import autocast
 from contextlib import nullcontext
 import requests
 import functools
+
 import sys, os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-
-from io import BytesIO
-import torch
-import numpy as np
-from PIL import Image
-from einops import rearrange
-from torch import autocast
-from contextlib import nullcontext
-import requests
-import functools
 
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.extras import load_model_from_config, load_training_dir
 import clip
 
+
+
 from PIL import Image
 
 from huggingface_hub import hf_hub_download
-ckpt = hf_hub_download(repo_id="lambdalabs/image-mixer", filename="image-mixer-pruned.ckpt")
+ckpt = hf_hub_download(repo_id="lambdalabs/image-mixer", filename="image-mixer-full.ckpt")
 config = hf_hub_download(repo_id="lambdalabs/image-mixer", filename="image-mixer-config.yaml")
 
 device = "cuda:0"
 model = load_model_from_config(config, ckpt, device=device, verbose=False)
-model = model.to(device).half()
+model = model.to(device).float()
 
 clip_model, preprocess = clip.load("ViT-L/14", device=device)
 
-n_inputs = 5
+n_inputs = 2
 
 torch.cuda.empty_cache()
 
@@ -71,7 +64,7 @@ def to_im_list(x_samples_ddim):
     return ims
 
 @torch.no_grad()
-def sample(sampler, model, c, uc, scale, start_code, h=512, w=512, precision="autocast",ddim_steps=50):
+def sample(sampler, model, c, uc, scale, start_code, h=1024, w=1024, precision="autocast",ddim_steps=50):
     ddim_eta=0.0
     precision_scope = autocast if precision=="autocast" else nullcontext
     with precision_scope("cuda"):
@@ -96,7 +89,7 @@ def run(*args):
         inps.append(args[i:i+n_inputs])
 
     scale, n_samples, seed, steps = args[-4:]
-    h = w = 640
+    h = w = 1280
 
     sampler = DDIMSampler(model)
     # sampler = PLMSSampler(model)
@@ -120,7 +113,7 @@ def run(*args):
     conds = torch.cat(conds, dim=0).unsqueeze(0)
     conds = conds.tile(n_samples, 1, 1)
 
-    ims = sample(sampler, model, conds, 0*conds, scale, start_code, ddim_steps=steps)
+    ims = sample(sampler, model, conds, 0*conds, scale, start_code, h=h, w=w, ddim_steps=steps)
     # return make_row(ims)
     return ims
 
@@ -185,27 +178,18 @@ _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](htt
                     ims.append(im1)
                     strengths.append(strength)
     with gr.Row():
-        cfg_scale = gr.Slider(label="CFG scale", value=3, minimum=1, maximum=10, step=0.5)
-        n_samples = gr.Slider(label="Num samples", value=2, minimum=1, maximum=4, step=1)
-        seed = gr.Slider(label="Seed", value=0, minimum=0, maximum=10000, step=1)
-        steps = gr.Slider(label="Steps", value=30, minimum=10, maximum=100, step=5)
+        cfg_scale = gr.Slider(label="CFG scale", value=3.5, minimum=1, maximum=20, step=0.5)
+        n_samples = gr.Slider(label="Num samples", value=1, minimum=1, maximum=4, step=1)
+        seed = gr.Slider(label="Seed", value=3800, minimum=0, maximum=10000, step=1)
+        steps = gr.Slider(label="Steps", value=40, minimum=10, maximum=200, step=5)
 
     with gr.Row():
         submit = gr.Button("Generate")
-    output = gr.Gallery().style(grid=[1,2], height="640px")
+    output = gr.Gallery().style(grid=[1,2], height="1280px")
 
     inps = list(chain(btns, txts, ims, strengths))
     inps.extend([cfg_scale,n_samples,seed, steps,])
     submit.click(fn=run, inputs=inps, outputs=[output])
-
-    ex = gr.Examples([[
-        "Image", "Image", "Text/URL", "Nothing", "Nothing",
-        None,None,"wild flowers blooming",None,None,
-        "assets/im-examples/vermeer.jpg","assets/im-examples/matisse.jpg",None,None,None,
-        1,1,1.8,1,1,
-        3.0, 2, 0, 30,
-    ]],
-    inputs=inps, outputs=[output])
 
     gr.Markdown(
 """
