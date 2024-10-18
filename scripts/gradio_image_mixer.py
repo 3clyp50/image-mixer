@@ -64,7 +64,7 @@ def to_im_list(x_samples_ddim):
     return ims
 
 @torch.no_grad()
-def sample(sampler, model, c, uc, scale, start_code, h=550, w=550, precision="autocast",ddim_steps=50):
+def sample(sampler, model, c, uc, scale, start_code, h=512, w=512, precision="autocast",ddim_steps=50):
     ddim_eta=0.0
     precision_scope = autocast if precision=="autocast" else nullcontext
     with precision_scope("cuda"):
@@ -89,7 +89,7 @@ def run(*args):
         inps.append(args[i:i+n_inputs])
 
     scale, n_samples, seed, steps = args[-4:]
-    h = w = 700
+    h = w = 640
 
     sampler = DDIMSampler(model)
     # sampler = PLMSSampler(model)
@@ -142,12 +142,7 @@ with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as de
     gr.Markdown(
 """
 # Image Mixer
-
 _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](https://lambdalabs.com/)_
-
-### __Provide one or more images to be mixed together by a fine-tuned Stable Diffusion model.__
-
-![banner-large.jpeg](https://s3.amazonaws.com/moonup/production/uploads/1674039767068-62bd5f951e22ec84279820e8.jpeg)
 
 """)
 
@@ -168,7 +163,7 @@ _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](htt
                         )
                     txt1 = gr.Textbox(label="Text or Image URL", visible=False, interactive=True)
                     im1 = gr.Image(label="Image", interactive=True, visible=False, type="pil")
-                    strength = gr.Slider(label="Strength", minimum=0, maximum=5, step=0.05, value=1, interactive=True)
+                    strength = gr.Slider(label="Strength", minimum=0, maximum=4, step=0.05, value=1, interactive=True)
     
                     fn = partial(change_visible, txt1, im1)
                     btn1.change(fn=fn, inputs=[btn1], outputs=[txt1, im1])
@@ -180,40 +175,15 @@ _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](htt
     with gr.Row():
         cfg_scale = gr.Slider(label="CFG scale", value=3.5, minimum=1, maximum=20, step=0.5)
         n_samples = gr.Slider(label="Num samples", value=1, minimum=1, maximum=2, step=1)
-        seed = gr.Slider(label="Seed", value=3800, minimum=0, maximum=10000, step=1)
-        steps = gr.Slider(label="Steps", value=40, minimum=10, maximum=200, step=5)
+        seed = gr.Slider(label="Seed", value=3800, minimum=0, maximum=5000, step=1)
+        steps = gr.Slider(label="Steps", value=40, minimum=10, maximum=100, step=5)
 
     with gr.Row():
         submit = gr.Button("Generate")
-    output = gr.Gallery().style(grid=[1,2], height="1280px")
+    output = gr.Gallery().style(grid=[1,2], height="640px")
 
     inps = list(chain(btns, txts, ims, strengths))
     inps.extend([cfg_scale,n_samples,seed, steps,])
     submit.click(fn=run, inputs=inps, outputs=[output])
-
-    gr.Markdown(
-"""
-
-## Tips
-
-- You can provide between 1 and 5 inputs, these can either be an uploaded image a text prompt or a url to an image file.
-- The order of the inputs shouldn't matter, any images will be centre cropped before use.
-- Each input has an individual strength parameter which controls how big an influence it has on the output.
-- Using only text prompts doesn't work well, make sure there is at least one image or URL to an image.
-- The parameters on the bottom row such as cfg scale do the same as for a normal Stable Diffusion model.
-- Balancing the different inputs requires tweaking of the strengths, I suggest getting the right balance for a small number of samples and with few steps until you're
-happy with the result then increase the steps for better quality.
-- Outputs are 640x640 by default.
-
-## How does this work?
-
-This model is based on the [Stable Diffusion Image Variations model](https://huggingface.co/lambdalabs/sd-image-variations-diffusers)
-but it has been fined tuned to take multiple CLIP image embeddings. During training, up to 5 random crops were taken from the training images and
-the CLIP image embeddings were computed, these were then concatenated and used as the conditioning for the model. At inference time we can combine the image
-embeddings from multiple images to mix their concepts (and we can also use the text encoder to add text concepts too).
-
-The model was trained on a subset of LAION Improved Aesthetics at a resolution of 640x640 and was trained using 8xA100 GPUs on [Lambda GPU Cloud](https://lambdalabs.com/service/gpu-cloud).
-
-""")
 
 demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
