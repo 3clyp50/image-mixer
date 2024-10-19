@@ -138,13 +138,10 @@ def change_visible(txt1, im1, val):
 
 with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as demo:
 
-    gr.Markdown("")
-    gr.Markdown(
-"""
-# Image Mixer
-_Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](https://lambdalabs.com/)_
-
-""")
+    gr.Markdown("""
+    # Image Mixer
+    _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](https://lambdalabs.com/)_
+    """)
 
     btns = []
     txts = []
@@ -152,35 +149,66 @@ _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](htt
     strengths = []
 
     with gr.Row():
-        for i in range(n_inputs):
-            with gr.Box():
-                with gr.Column():
-                    btn1 = gr.Radio(
-                        choices=["Image", "Text/URL", "Nothing"],
-                        label=f"Input {i} type",
-                        interactive=True,
-                        value="Nothing",
+        with gr.Column(scale=1):  # Input column (1/4 width)
+            for i in range(n_inputs):
+                with gr.Box():
+                    with gr.Column():
+                        btn1 = gr.Radio(
+                            choices=["Image", "Text/URL", "Nothing"],
+                            label=f"Input {i} type",
+                            interactive=True,
+                            value="Nothing",
                         )
-                    txt1 = gr.Textbox(label="Text or Image URL", visible=False, interactive=True)
-                    im1 = gr.Image(label="Image", interactive=True, visible=False, type="pil")
-                    strength = gr.Slider(label="Strength", minimum=0, maximum=4, step=0.05, value=1, interactive=True)
-    
-                    fn = partial(change_visible, txt1, im1)
-                    btn1.change(fn=fn, inputs=[btn1], outputs=[txt1, im1])
-    
-                    btns.append(btn1)
-                    txts.append(txt1)
-                    ims.append(im1)
-                    strengths.append(strength)
-    with gr.Row():
-        cfg_scale = gr.Slider(label="CFG scale", value=3.5, minimum=1, maximum=20, step=0.5)
-        n_samples = gr.Slider(label="Num samples", value=1, minimum=1, maximum=2, step=1)
-        seed = gr.Slider(label="Seed", value=3800, minimum=0, maximum=5000, step=1)
-        steps = gr.Slider(label="Steps", value=40, minimum=10, maximum=100, step=5)
+                        txt1 = gr.Textbox(
+                            label="Text or Image URL", visible=False, interactive=True
+                        )
+                        im1 = gr.Image(
+                            label="Image",
+                            interactive=True,
+                            visible=False,
+                            type="pil",
+                        )
+                        strength = gr.Slider(
+                            label="Strength",
+                            minimum=0,
+                            maximum=4,
+                            step=0.05,
+                            value=1,
+                            interactive=True,
+                        )
 
-    with gr.Row():
-        submit = gr.Button("Generate")
-    output = gr.Gallery().style(grid=[1,2], height="640px")
+                        fn = partial(change_visible, txt1, im1)
+                        btn1.change(fn=fn, inputs=[btn1], outputs=[txt1, im1])
+
+                        btns.append(btn1)
+                        txts.append(txt1)
+                        ims.append(im1)
+                        strengths.append(strength)
+
+        with gr.Column(scale=3):  # Settings and Gallery column (3/4 width)
+            with gr.Box():  # Settings Box
+                with gr.Row():
+                    cfg_scale = gr.Slider(
+                        label="CFG scale",
+                        value=3.5,
+                        minimum=1,
+                        maximum=20,
+                        step=0.5,
+                    )
+                    n_samples = gr.Slider(
+                        label="Num samples", value=1, minimum=1, maximum=2, step=1
+                    )
+                with gr.Row():
+                    seed = gr.Slider(
+                        label="Seed", value=3800, minimum=0, maximum=5000, step=1
+                    )
+                    steps = gr.Slider(
+                        label="Steps", value=40, minimum=10, maximum=100, step=5
+                    )
+            with gr.Row():  # Submit button row
+                submit = gr.Button("Generate")
+
+            output = gr.Gallery().style(grid=[1, 2], height="640px")  # Gallery
 
     inps = list(chain(btns, txts, ims, strengths))
     inps.extend([cfg_scale,n_samples,seed, steps,])
