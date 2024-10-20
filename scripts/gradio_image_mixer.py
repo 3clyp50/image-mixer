@@ -6,7 +6,10 @@ from einops import rearrange
 from torch import autocast
 from contextlib import nullcontext
 import requests
+import warnings
 import functools
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastapi") # Filter out specific warning
 
 import sys, os
 
@@ -16,8 +19,6 @@ from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.extras import load_model_from_config, load_training_dir
 import clip
-
-
 
 from PIL import Image
 
@@ -140,7 +141,7 @@ with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as de
 
     gr.Markdown("""
     # Image Mixer
-    _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](https://lambdalabs.com/)_
+    _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](https://lambdalabs.com/). Revamped by @3clyp50_
     """)
 
     btns = []
@@ -149,7 +150,7 @@ with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as de
     strengths = []
 
     with gr.Row():
-        with gr.Column(scale=1):  # Input column (1/4 width)
+        with gr.Column():  # Input column
             for i in range(n_inputs):
                 with gr.Box():
                     with gr.Column():
@@ -185,7 +186,7 @@ with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as de
                         ims.append(im1)
                         strengths.append(strength)
 
-        with gr.Column(scale=3):  # Settings and Gallery column (3/4 width)
+        with gr.Column():  # Settings and Gallery column
             with gr.Box():  # Settings Box
                 with gr.Row():
                     cfg_scale = gr.Slider(
@@ -200,13 +201,13 @@ with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as de
                     )
                 with gr.Row():
                     seed = gr.Slider(
-                        label="Seed", value=3800, minimum=0, maximum=5000, step=1
+                        label="Seed", value=0, minimum=0, maximum=5000, step=1
                     )
                     steps = gr.Slider(
                         label="Steps", value=40, minimum=10, maximum=100, step=5
                     )
             with gr.Row():  # Submit button row
-                submit = gr.Button("Generate")
+                submit = gr.Button("Genera immagine")
 
             output = gr.Gallery().style(grid=[1, 2], height="640px")  # Gallery
 
