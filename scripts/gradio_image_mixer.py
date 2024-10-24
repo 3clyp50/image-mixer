@@ -89,11 +89,18 @@ def super_resolve_image(image, target_res=2048, steps=50, prompt="high quality h
         if hasattr(sr_model, 'get_first_stage_encoding'):
             zx = sr_model.get_first_stage_encoding(sr_model.encode_first_stage(x_low))
             all_conds = {"c_concat": [zx], "c_crossattn": [c]}
+            
+            # Add noise level conditioning for PLMS sampler
+            noise_level = torch.Tensor([sr_model.low_scale_model.max_noise_level]).to(device)
+            all_conds["c_adm"] = noise_level
         else:
             zx = sr_model.low_scale_model.model.encode(x_low).sample()
             zx = zx * sr_model.low_scale_model.scale_factor
-            noise_level = torch.tensor([0]).tile(1).to(device)
+            noise_level = torch.Tensor([sr_model.low_scale_model.max_noise_level]).to(device)
             all_conds = {"c_concat": [zx], "c_crossattn": [c], "c_adm": noise_level}
+        
+        # Create unconditional conditioning
+        uc = make_unc(sr_model, 1, all_conds)
         
         samples_ddim, _ = sampler.sample(
             S=steps,
@@ -102,7 +109,7 @@ def super_resolve_image(image, target_res=2048, steps=50, prompt="high quality h
             shape=shape,
             verbose=False,
             unconditional_guidance_scale=1.0,
-            unconditional_conditioning=make_unc(sr_model, 1, all_conds),
+            unconditional_conditioning=uc,
             eta=0.0,
         )
         
@@ -185,18 +192,21 @@ def run(*args):
     conds = torch.cat(conds, dim=0).unsqueeze(0)
     conds = conds.tile(n_samples, 1, 1)
 
-    # Generate initial images
-    initial_images = sample(sampler, mixer_model, conds, 0*conds, scale, start_code, h=h, w=w, ddim_steps=steps)
-    
-    # Super resolve each image
-    final_images = []
-    for img in initial_images:
-        # Apply super resolution 3 times
-        for _ in range(3):
-            img = super_resolve_image(img)
-        final_images.append(img)
-    
-    return final_images
+    try:
+        # Generate initial images
+        initial_images = sample(sampler, mixer_model, conds, 0*conds, scale, start_code, h=h, w=w, ddim_steps=steps)
+        
+        # Super resolve each image
+        final_images = []
+        for img in initial_images:
+            # Apply super resolution once with larger step count
+            img = super_resolve_image(img, steps=50)
+            final_images.append(img)
+        
+        return final_images
+    except Exception as e:
+        print(f"Error during generation: {str(e)}")
+        return None
 
 # Gradio interface setup remains the same as in original script
 import gradio as gr
