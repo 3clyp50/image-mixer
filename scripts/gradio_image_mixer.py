@@ -58,7 +58,8 @@ def make_unc(model, n_samples, all_conds):
             uc[k] = [uc_tmp]
         elif k == "c_adm":
             assert isinstance(all_conds[k], torch.Tensor)
-            uc[k] = torch.ones_like(all_conds[k]) * model.low_scale_model.max_noise_level
+            # Fix: Make sure unconditional noise level matches the type of conditional
+            uc[k] = torch.ones_like(all_conds[k], dtype=torch.long) * model.low_scale_model.max_noise_level
         elif isinstance(all_conds[k], list):
             uc[k] = [all_conds[k][i] for i in range(len(all_conds[k]))]
         else:
@@ -66,44 +67,60 @@ def make_unc(model, n_samples, all_conds):
     return uc
 
 @torch.no_grad()
-def super_resolve_image(image, target_res=2048, steps=50, prompt="high quality high resolution uhd 4k image"):
+def super_resolve_image(image, target_res=896, steps=70, prompt="masterful impressionist oil painting, museum quality, high resolution fine art, professional photograph of original artwork, high detail enhancement"):
     # Convert PIL image to tensor
     input_im = transforms.ToTensor()(image).unsqueeze(0).to(device)
     
-    # Calculate intermediate size
+    # Calculate intermediate size with constraints
     current_size = min(image.size)
-    intermediate_size = min(current_size * 2, target_res)
+    # Limit maximum size to prevent CUDA OOM
+    max_size = 896  # Reduced from 2048
+    intermediate_size = min(current_size * 2, target_res, max_size)
     
-    input_im = transforms.Resize((intermediate_size, intermediate_size))(input_im)
+    # Ensure dimensions are multiples of 8 (required for VAE)
+    intermediate_size = (intermediate_size // 8) * 8
+    
+    # Resize input image
+    input_im = transforms.Resize(
+        (intermediate_size, intermediate_size),
+        antialias=True  # Explicitly set antialias to avoid warning
+    )(input_im)
     input_im = input_im * 2 - 1
 
     sampler = PLMSSampler(sr_model)
     
     with autocast("cuda"):
+        # Clear CUDA cache before processing
+        torch.cuda.empty_cache()
+        
         c = sr_model.get_learned_conditioning([prompt])
         shape = [4, intermediate_size // 8, intermediate_size // 8]
         
-        x_low = input_im.tile(1, 1, 1, 1)
-        x_low = x_low.to(memory_format=torch.contiguous_format).half()
+        # Process in half precision to save memory
+        x_low = input_im.to(memory_format=torch.contiguous_format).half()
         
         if hasattr(sr_model, 'get_first_stage_encoding'):
             zx = sr_model.get_first_stage_encoding(sr_model.encode_first_stage(x_low))
             all_conds = {"c_concat": [zx], "c_crossattn": [c]}
-            
-            # Add noise level conditioning for PLMS sampler
-            noise_level = torch.Tensor([sr_model.low_scale_model.max_noise_level]).to(device)
+            noise_level = torch.tensor([sr_model.low_scale_model.max_noise_level], 
+                                     device=device, 
+                                     dtype=torch.long)
             all_conds["c_adm"] = noise_level
         else:
             zx = sr_model.low_scale_model.model.encode(x_low).sample()
             zx = zx * sr_model.low_scale_model.scale_factor
-            noise_level = torch.Tensor([sr_model.low_scale_model.max_noise_level]).to(device)
+            noise_level = torch.tensor([sr_model.low_scale_model.max_noise_level], 
+                                     device=device, 
+                                     dtype=torch.long)
             all_conds = {"c_concat": [zx], "c_crossattn": [c], "c_adm": noise_level}
         
-        # Create unconditional conditioning
         uc = make_unc(sr_model, 1, all_conds)
         
+        # Reduce number of steps for faster processing
+        actual_steps = min(steps, 40)  # Cap maximum steps
+        
         samples_ddim, _ = sampler.sample(
-            S=steps,
+            S=actual_steps,
             conditioning=all_conds,
             batch_size=1,
             shape=shape,
@@ -113,9 +130,14 @@ def super_resolve_image(image, target_res=2048, steps=50, prompt="high quality h
             eta=0.0,
         )
         
+        # Clear intermediate tensors
+        del zx, c, all_conds, uc
+        torch.cuda.empty_cache()
+        
         x_samples_ddim = sr_model.decode_first_stage(samples_ddim)
         x_sample = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
         x_sample = 255. * rearrange(x_sample[0].cpu().numpy(), 'c h w -> h w c')
+        
         return Image.fromarray(x_sample.astype(np.uint8))
 
 # Original Image Mixer functions with modifications
@@ -199,9 +221,13 @@ def run(*args):
         # Super resolve each image
         final_images = []
         for img in initial_images:
-            # Apply super resolution once with larger step count
-            img = super_resolve_image(img, steps=50)
-            final_images.append(img)
+            try:
+                # Apply super resolution with proper error handling
+                img = super_resolve_image(img, steps=50)
+                final_images.append(img)
+            except Exception as e:
+                print(f"Error during super resolution: {str(e)}")
+                final_images.append(img)  # Append original image if super-resolution fails
         
         return final_images
     except Exception as e:
