@@ -10,7 +10,7 @@ from torch.utils.data.dataloader import default_collate
 import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import Callback
-from pytorch_lightning.utilities.distributed import rank_zero_only
+from pytorch_lightning.utilities import rank_zero_only
 from tqdm import tqdm
 import datetime
 

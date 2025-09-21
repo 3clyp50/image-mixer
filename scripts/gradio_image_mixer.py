@@ -11,9 +11,17 @@ import functools
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastapi") # Filter out specific warning
 
-import sys, os
-
+# Fix for Pydantic schema generation error with Starlette request objects
+import os
+import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(os.path.dirname(__file__))
+
+# Import the patch before importing gradio
+try:
+    import pydantic_patch
+except ImportError:
+    print("Pydantic patch not found, continuing without it")
 
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
@@ -100,9 +108,9 @@ def run(*args):
     conds = []
 
     for b, t, im, s in zip(*inps):
-        if b == "Image":
+        if b == "Immagine":
             this_cond = s*get_im_c(im, clip_model)
-        elif b == "Text/URL":
+        elif b == "Testo/URL":
             if t.startswith("http"):
                 im = get_url_im(t)
                 this_cond = s*get_im_c(im, clip_model)
@@ -119,29 +127,35 @@ def run(*args):
     return ims
 
 
+# Import gradio after the patch is in place
 import gradio as gr
 from functools import partial
 from itertools import chain
 
 def change_visible(txt1, im1, val):
     outputs = {}
-    if val == "Image":
+    if val == "Immagine":
         outputs[im1] = gr.update(visible=True)
         outputs[txt1] = gr.update(visible=False)
-    elif val == "Text/URL":
+    elif val == "Testo/URL":
         outputs[im1] = gr.update(visible=False)
         outputs[txt1] = gr.update(visible=True)
-    elif val == "Nothing":
+    elif val == "Niente":
         outputs[im1] = gr.update(visible=False)
         outputs[txt1] = gr.update(visible=False)
     return outputs
 
 
-with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as demo:
+css = """
+.gr-group {border: 1px solid #8136e2; border-radius: 10px; padding: 15px}
+.gr-form {border-color: #8136e2}
+"""
+
+with gr.Blocks(title="Mixer di Immagini", css=css) as demo:
 
     gr.Markdown("""
-    # Image Mixer
-    _Created by [Justin Pinkney](https://www.justinpinkney.com) at [Lambda Labs](https://lambdalabs.com/). Revamped by @3clyp50_
+    # Mixer di Immagini
+    _Creato da [Justin Pinkney](https://www.justinpinkney.com) a [Lambda Labs](https://lambdalabs.com/). Rinnovato da @3clyp50_
     """)
 
     btns = []
@@ -152,25 +166,25 @@ with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as de
     with gr.Row():
         with gr.Column():  # Input column
             for i in range(n_inputs):
-                with gr.Box():
+                with gr.Group():
                     with gr.Column():
                         btn1 = gr.Radio(
-                            choices=["Image", "Text/URL", "Nothing"],
-                            label=f"Input {i} type",
+                            choices=["Immagine", "Testo/URL", "Niente"],
+                            label=f"Tipo di input {i}",
                             interactive=True,
-                            value="Nothing",
+                            value="Niente",
                         )
                         txt1 = gr.Textbox(
-                            label="Text or Image URL", visible=False, interactive=True
+                            label="Testo o URL Immagine", visible=False, interactive=True
                         )
                         im1 = gr.Image(
-                            label="Image",
+                            label="Immagine",
                             interactive=True,
                             visible=False,
                             type="pil",
                         )
                         strength = gr.Slider(
-                            label="Strength",
+                            label="Importanza",
                             minimum=0,
                             maximum=4,
                             step=0.05,
@@ -187,32 +201,52 @@ with gr.Blocks(title="Image Mixer", css=".gr-box {border-color: #8136e2}") as de
                         strengths.append(strength)
 
         with gr.Column():  # Settings and Gallery column
-            with gr.Box():  # Settings Box
+            with gr.Group():  # Settings Group
                 with gr.Row():
                     cfg_scale = gr.Slider(
-                        label="CFG scale",
+                        label="Scala CFG",
                         value=3.5,
                         minimum=1,
                         maximum=20,
                         step=0.5,
                     )
                     n_samples = gr.Slider(
-                        label="Num samples", value=1, minimum=1, maximum=2, step=1
+                        label="Numero campioni", value=1, minimum=1, maximum=2, step=1
                     )
                 with gr.Row():
                     seed = gr.Slider(
                         label="Seed", value=0, minimum=0, maximum=5000, step=1
                     )
                     steps = gr.Slider(
-                        label="Steps", value=40, minimum=10, maximum=100, step=5
+                        label="Passi", value=40, minimum=10, maximum=100, step=5
                     )
             with gr.Row():  # Submit button row
                 submit = gr.Button("Genera immagine")
 
-            output = gr.Gallery().style(grid=[1,2], height="640px")  # Gallery
+            # Updated Gallery component for Gradio 4.x
+            output = gr.Gallery(
+                label="Immagini Generate",
+                columns=[1, 2],
+                height=640,
+                object_fit="contain"
+            )
 
     inps = list(chain(btns, txts, ims, strengths))
-    inps.extend([cfg_scale,n_samples,seed, steps,])
-    submit.click(fn=run, inputs=inps, outputs=[output])
+    inps.extend([cfg_scale, n_samples, seed, steps])
+    
+    # Set concurrency limit directly on the event listener
+    submit.click(
+        fn=run, 
+        inputs=inps, 
+        outputs=[output],
+        concurrency_limit=1  # Limits to 1 concurrent execution
+    )
 
-demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
+# Launch the app with max_threads parameter
+demo.launch(
+    server_name="0.0.0.0", 
+    server_port=7860, 
+    show_api=False, 
+    share=True,
+    max_threads=4  # Controls the total number of threads used for processing
+)
