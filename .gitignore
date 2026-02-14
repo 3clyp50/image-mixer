@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.a0proj/
+venv/
+*.pt
+*.ckpt
+*.safetensors
+.DS_Store

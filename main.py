@@ -674,7 +674,7 @@ if __name__ == "__main__":
 
         if not opt.finetune_from == "":
             rank_zero_print(f"Attempting to load state from {opt.finetune_from}")
-            old_state = torch.load(opt.finetune_from, map_location="cpu")
+            old_state = torch.load(opt.finetune_from, map_location="cpu", weights_only=False)
             if "state_dict" in old_state:
                 rank_zero_print(f"Found nested key 'state_dict' in checkpoint, loading this instead")
                 old_state = old_state["state_dict"]

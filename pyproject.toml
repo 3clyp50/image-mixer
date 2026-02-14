@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "latent-diffusion"
+version = "0.1.0"
+description = "Image Mixer - Stable Diffusion based image generation from mixed inputs"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+readme = "README.md"
+
+dependencies = [
+    "torch>=2.2.0",
+    "numpy>=1.26.0",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+training = [
+    "pytorch-lightning>=2.1.0",
+    "streamlit>=1.30.0",
+    "webdataset>=0.2.70",
+    "test-tube>=0.7.5",
+    "pudb>=2022.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["ldm*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

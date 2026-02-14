@@ -1,14 +1,28 @@
+import logging
+
 import torch
 import pytorch_lightning as pl
 import torch.nn.functional as F
 from contextlib import contextmanager
 
-from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
-
 from ldm.modules.diffusionmodules.model import Encoder, Decoder
 from ldm.modules.distributions.distributions import DiagonalGaussianDistribution
-
 from ldm.util import instantiate_from_config
+
+logger = logging.getLogger(__name__)
+
+
+def _load_vq_quantizer():
+    """Lazy import of taming-transformers VectorQuantizer.
+    Only needed when VQModel is instantiated (not used by Image Mixer)."""
+    try:
+        from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
+        return VectorQuantizer
+    except ImportError:
+        raise ImportError(
+            "taming-transformers is required for VQModel but not installed. "
+            "Install with: pip install -e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers"
+        )
 
 
 class VQModel(pl.LightningModule):
@@ -26,7 +40,7 @@ class VQModel(pl.LightningModule):
                  scheduler_config=None,
                  lr_g_factor=1.0,
                  remap=None,
-                 sane_index_shape=False, # tell vector quantizer to return indices as bhw
+                 sane_index_shape=False,
                  use_ema=False
                  ):
         super().__init__()
@@ -36,24 +50,25 @@ class VQModel(pl.LightningModule):
         self.encoder = Encoder(**ddconfig)
         self.decoder = Decoder(**ddconfig)
         self.loss = instantiate_from_config(lossconfig)
+        VectorQuantizer = _load_vq_quantizer()
         self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
                                         remap=remap,
                                         sane_index_shape=sane_index_shape)
         self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
         if colorize_nlabels is not None:
-            assert type(colorize_nlabels)==int
+            assert isinstance(colorize_nlabels, int)
             self.register_buffer("colorize", torch.randn(3, colorize_nlabels, 1, 1))
         if monitor is not None:
             self.monitor = monitor
         self.batch_resize_range = batch_resize_range
         if self.batch_resize_range is not None:
-            print(f"{self.__class__.__name__}: Using per-batch resizing in range {batch_resize_range}.")
+            logger.info(f"{self.__class__.__name__}: Using per-batch resizing in range {batch_resize_range}.")
 
         self.use_ema = use_ema
         if self.use_ema:
             self.model_ema = LitEma(self)
-            print(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
+            logger.info(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
 
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
@@ -66,28 +81,28 @@ class VQModel(pl.LightningModule):
             self.model_ema.store(self.parameters())
             self.model_ema.copy_to(self)
             if context is not None:
-                print(f"{context}: Switched to EMA weights")
+                logger.info(f"{context}: Switched to EMA weights")
         try:
             yield None
         finally:
             if self.use_ema:
                 self.model_ema.restore(self.parameters())
                 if context is not None:
-                    print(f"{context}: Restored training weights")
+                    logger.info(f"{context}: Restored training weights")
 
     def init_from_ckpt(self, path, ignore_keys=list()):
-        sd = torch.load(path, map_location="cpu")["state_dict"]
+        sd = torch.load(path, map_location="cpu", weights_only=False)["state_dict"]
         keys = list(sd.keys())
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
+                    logger.info(f"Deleting key {k} from state_dict.")
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
+        logger.info(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
         if len(missing) > 0:
-            print(f"Missing Keys: {missing}")
-            print(f"Unexpected Keys: {unexpected}")
+            logger.debug(f"Missing Keys: {missing}")
+            logger.debug(f"Unexpected Keys: {unexpected}")
 
     def on_train_batch_end(self, *args, **kwargs):
         if self.use_ema:
@@ -130,7 +145,6 @@ class VQModel(pl.LightningModule):
             lower_size = self.batch_resize_range[0]
             upper_size = self.batch_resize_range[1]
             if self.global_step <= 4:
-                # do the first few batches with max size to avoid later oom
                 new_resize = upper_size
             else:
                 new_resize = np.random.choice(np.arange(lower_size, upper_size+16, 16))
@@ -140,22 +154,17 @@ class VQModel(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-        # https://github.com/pytorch/pytorch/issues/37142
-        # try not to fool the heuristics
         x = self.get_input(batch, self.image_key)
         xrec, qloss, ind = self(x, return_pred_indices=True)
 
         if optimizer_idx == 0:
-            # autoencode
             aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train",
                                             predicted_indices=ind)
-
             self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
             return aeloss
 
         if optimizer_idx == 1:
-            # discriminator
             discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
             self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
@@ -188,8 +197,7 @@ class VQModel(pl.LightningModule):
                    prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
         self.log(f"val{suffix}/aeloss", aeloss,
                    prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
-        if version.parse(pl.__version__) >= version.parse('1.4.0'):
-            del log_dict_ae[f"val{suffix}/rec_loss"]
+        del log_dict_ae[f"val{suffix}/rec_loss"]
         self.log_dict(log_dict_ae)
         self.log_dict(log_dict_disc)
         return self.log_dict
@@ -197,8 +205,6 @@ class VQModel(pl.LightningModule):
     def configure_optimizers(self):
         lr_d = self.learning_rate
         lr_g = self.lr_g_factor*self.learning_rate
-        print("lr_d", lr_d)
-        print("lr_g", lr_g)
         opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
                                   list(self.decoder.parameters())+
                                   list(self.quantize.parameters())+
@@ -210,8 +216,7 @@ class VQModel(pl.LightningModule):
 
         if self.scheduler_config is not None:
             scheduler = instantiate_from_config(self.scheduler_config)
-
-            print("Setting up LambdaLR scheduler...")
+            logger.info("Setting up LambdaLR scheduler...")
             scheduler = [
                 {
                     'scheduler': LambdaLR(opt_ae, lr_lambda=scheduler.schedule),
@@ -239,7 +244,6 @@ class VQModel(pl.LightningModule):
             return log
         xrec, _ = self(x)
         if x.shape[1] > 3:
-            # colorize with random projection
             assert xrec.shape[1] > 3
             x = self.to_rgb(x)
             xrec = self.to_rgb(xrec)
@@ -272,7 +276,6 @@ class VQModelInterface(VQModel):
         return h
 
     def decode(self, h, force_not_quantize=False):
-        # also go through quantization layer
         if not force_not_quantize:
             quant, emb_loss, info = self.quantize(h)
         else:
@@ -303,7 +306,7 @@ class AutoencoderKL(pl.LightningModule):
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
         self.embed_dim = embed_dim
         if colorize_nlabels is not None:
-            assert type(colorize_nlabels)==int
+            assert isinstance(colorize_nlabels, int)
             self.register_buffer("colorize", torch.randn(3, colorize_nlabels, 1, 1))
         if monitor is not None:
             self.monitor = monitor
@@ -311,15 +314,15 @@ class AutoencoderKL(pl.LightningModule):
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
 
     def init_from_ckpt(self, path, ignore_keys=list()):
-        sd = torch.load(path, map_location="cpu")["state_dict"]
+        sd = torch.load(path, map_location="cpu", weights_only=False)["state_dict"]
         keys = list(sd.keys())
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
+                    logger.info(f"Deleting key {k} from state_dict.")
                     del sd[k]
         self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path}")
+        logger.info(f"Restored from {path}")
 
     def encode(self, x):
         h = self.encoder(x)
@@ -353,7 +356,6 @@ class AutoencoderKL(pl.LightningModule):
         reconstructions, posterior = self(inputs)
 
         if optimizer_idx == 0:
-            # train encoder+decoder+logvar
             aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
             self.log("aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
@@ -361,10 +363,8 @@ class AutoencoderKL(pl.LightningModule):
             return aeloss
 
         if optimizer_idx == 1:
-            # train the discriminator
             discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, optimizer_idx, self.global_step,
                                                 last_layer=self.get_last_layer(), split="train")
-
             self.log("discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
             self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False)
             return discloss
@@ -374,10 +374,8 @@ class AutoencoderKL(pl.LightningModule):
         reconstructions, posterior = self(inputs)
         aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, 0, self.global_step,
                                         last_layer=self.get_last_layer(), split="val")
-
         discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, 1, self.global_step,
                                             last_layer=self.get_last_layer(), split="val")
-
         self.log("val/rec_loss", log_dict_ae["val/rec_loss"])
         self.log_dict(log_dict_ae)
         self.log_dict(log_dict_disc)
@@ -405,7 +403,6 @@ class AutoencoderKL(pl.LightningModule):
         if not only_inputs:
             xrec, posterior = self(x)
             if x.shape[1] > 3:
-                # colorize with random projection
                 assert xrec.shape[1] > 3
                 x = self.to_rgb(x)
                 xrec = self.to_rgb(xrec)
@@ -425,7 +422,7 @@ class AutoencoderKL(pl.LightningModule):
 
 class IdentityFirstStage(torch.nn.Module):
     def __init__(self, *args, vq_interface=False, **kwargs):
-        self.vq_interface = vq_interface  # TODO: Should be true by default but check to not break older stuff
+        self.vq_interface = vq_interface
         super().__init__()
 
     def encode(self, x, *args, **kwargs):

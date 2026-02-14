@@ -1,30 +1,43 @@
+# ============================================
+# Image Mixer - Dependencies
+# ============================================
+# PyTorch (CUDA 12.1)
 --extra-index-url https://download.pytorch.org/whl/cu121
-httpx==0.27.0
-httpcore==1.0.5
 torch==2.2.1
 torchvision==0.17.1
-albumentations==1.4.0
-opencv-python==4.9.0.80
-pudb==2022.1.3
-imageio==2.33.1
-imageio-ffmpeg==0.4.9
+
+# Core ML
+einops==0.7.0
+transformers==4.38.2
+diffusers==0.32.2
 pytorch-lightning==2.1.3
 omegaconf==2.3.0
-test-tube>=0.7.5
-streamlit>=1.30.0
-einops==0.7.0
-torch-fidelity==0.3.0
-transformers==4.38.2
 kornia==0.7.2
-webdataset==0.2.79
 torchmetrics==1.3.1
-fire==0.5.0
+torch-fidelity==0.3.0
+
+# Image processing
+albumentations==1.4.0
+opencv-python==4.9.0.80
+imageio==2.33.1
+imageio-ffmpeg==0.4.9
+
+# Web UI
 gradio==5.29.0
-diffusers==0.32.2
+httpx==0.27.0
+httpcore==1.0.5
+
+# Data
 numpy==1.26.4
-taming-transformers-rom1504
+webdataset==0.2.79
 datasets[vision]==2.17.1
--e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers
--e git+https://github.com/openai/CLIP.git@main#egg=clip
--e git+https://github.com/justinpinkney/nomi.git@e9ded23b7e2269cc64d39683e1bf3c0319f552ab#egg=nomi
+
+# Utilities
+fire==0.5.0
+
+# Git dependencies (install separately via install.sh)
+# - CLIP: https://github.com/openai/CLIP.git
+# - taming-transformers (optional, only needed for VQ models)
+
+# Self-install
 -e .

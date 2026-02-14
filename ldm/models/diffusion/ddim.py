@@ -1,5 +1,7 @@
 """SAMPLING ONLY."""
 
+import logging
+
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -8,6 +10,8 @@ from einops import rearrange
 
 from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, extract_into_tensor
 from ldm.models.diffusion.sampling_util import renorm_thresholding, norm_thresholding, spatial_norm_thresholding
+
+logger = logging.getLogger(__name__)
 
 
 class DDIMSampler(object):
@@ -18,16 +22,14 @@ class DDIMSampler(object):
         self.schedule = schedule
 
     def to(self, device):
-        """Same as to in torch module
-        Don't really underestand why this isn't a module in the first place"""
+        """Same as to in torch module."""
         for k, v in self.__dict__.items():
             if isinstance(v, torch.Tensor):
                 new_v = getattr(self, k).to(device)
                 setattr(self, k, new_v)
 
-
     def register_buffer(self, name, attr):
-        if type(attr) == torch.Tensor:
+        if isinstance(attr, torch.Tensor):
             if attr.device != torch.device("cuda"):
                 attr = attr.to(torch.device("cuda"))
         setattr(self, name, attr)
@@ -84,7 +86,7 @@ class DDIMSampler(object):
                x_T=None,
                log_every_t=100,
                unconditional_guidance_scale=1.,
-               unconditional_conditioning=None, # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
+               unconditional_conditioning=None,
                dynamic_threshold=None,
                **kwargs
                ):
@@ -94,17 +96,16 @@ class DDIMSampler(object):
                 while isinstance(ctmp, list): ctmp = ctmp[0]
                 cbs = ctmp.shape[0]
                 if cbs != batch_size:
-                    print(f"Warning: Got {cbs} conditionings but batch-size is {batch_size}")
-
+                    logger.warning(f"Got {cbs} conditionings but batch-size is {batch_size}")
             else:
                 if conditioning.shape[0] != batch_size:
-                    print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
+                    logger.warning(f"Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
 
         self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
         # sampling
         C, H, W = shape
         size = (batch_size, C, H, W)
-        print(f'Data shape for DDIM sampling is {size}, eta {eta}')
+        logger.info(f'Data shape for DDIM sampling is {size}, eta {eta}')
 
         samples, intermediates = self.ddim_sampling(conditioning, size,
                                                     callback=callback,
@@ -150,7 +151,7 @@ class DDIMSampler(object):
         intermediates = {'x_inter': [img], 'pred_x0': [img]}
         time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
-        print(f"Running DDIM Sampling with {total_steps} timesteps")
+        logger.info(f"Running DDIM Sampling with {total_steps} timesteps")
 
         iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
 
@@ -160,7 +161,7 @@ class DDIMSampler(object):
 
             if mask is not None:
                 assert x0 is not None
-                img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
+                img_orig = self.model.q_sample(x0, ts)
                 img = img_orig * mask + (1. - mask) * img
 
             outs = self.p_sample_ddim(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
@@ -288,8 +289,6 @@ class DDIMSampler(object):
 
     @torch.no_grad()
     def stochastic_encode(self, x0, t, use_original_steps=False, noise=None):
-        # fast, but does not allow for exact reconstruction
-        # t serves as an index to gather the correct alphas
         if use_original_steps:
             sqrt_alphas_cumprod = self.sqrt_alphas_cumprod
             sqrt_one_minus_alphas_cumprod = self.sqrt_one_minus_alphas_cumprod
@@ -311,7 +310,7 @@ class DDIMSampler(object):
 
         time_range = np.flip(timesteps)
         total_steps = timesteps.shape[0]
-        print(f"Running DDIM Sampling with {total_steps} timesteps")
+        logger.info(f"Running DDIM Sampling with {total_steps} timesteps")
 
         iterator = tqdm(time_range, desc='Decoding image', total=total_steps)
         x_dec = x_latent
