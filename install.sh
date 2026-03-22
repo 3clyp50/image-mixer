@@ -33,8 +33,9 @@ source venv/bin/activate
 
 # Step 2: Upgrade core build tools
 echo "
-[2/5] Upgrading pip, setuptools, wheel..."
-pip install --upgrade pip setuptools wheel
+[2/5] Upgrading pip, setuptools (pinned to 69.5.1), wheel..."
+pip install --upgrade pip wheel
+pip install setuptools==69.5.1
 
 # Step 3: Install CLIP (requires --no-build-isolation due to numpy/torch build deps)
 echo "
@@ -50,7 +51,7 @@ pip install -r requirements.txt
 # Not required for Image Mixer (uses AutoencoderKL, not VQModel)
 # Uncomment below if you need VQ model support:
 # echo "
-[5/5] Installing taming-transformers (optional)..."
+# [5/5] Installing taming-transformers (optional)..."
 # pip install -e git+https://github.com/CompVis/taming-transformers.git@master#egg=taming-transformers
 echo "
 [5/5] Skipping taming-transformers (not needed for Image Mixer)"
